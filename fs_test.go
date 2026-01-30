@@ -62,12 +62,8 @@ func TestTmpFSRootAndClose(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer fs.Close()
-	tmpFS, ok := fs.(TemporaryVFS)
-	if !ok {
-		t.Fatal("TmpFS should return TemporaryVFS")
-	}
-	root := tmpFS.Root()
+	defer func() { _ = fs.Close() }()
+	root := fs.Root()
 	if root == "" {
 		t.Error("Root() should be non-empty")
 	}

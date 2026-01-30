@@ -95,7 +95,7 @@ func TestAsReadOnlyFS_OpenDir(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	df, ok := f.(fs.ReadDirFile)
 	if !ok {
@@ -121,7 +121,7 @@ func TestAsReadOnlyFS_FileReadClose(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	buf := make([]byte, 20)
 	n, err := f.Read(buf)
 	if err != nil && err != io.EOF {
@@ -136,7 +136,7 @@ func TestAsReadOnlyFS_FileReadClose(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer dir.Close()
+	defer func() { _ = dir.Close() }()
 	n, err = dir.Read(buf)
 	if n != 0 || err != nil {
 		t.Errorf("dir.Read = %d, %v (want 0, nil)", n, err)
@@ -152,7 +152,7 @@ func TestAsReadOnlyFS_ReadDirN(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	df := f.(fs.ReadDirFile)
 	// ReadDir(1) multiple times to cover n>0 path
 	ents, err := df.ReadDir(1)

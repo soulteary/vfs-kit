@@ -75,7 +75,7 @@ func TestFileSeekWhence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer w.Close()
+	defer func() { _ = w.Close() }()
 	// SeekCurrent
 	pos, err := w.Seek(2, io.SeekCurrent)
 	if err != nil || pos != 2 {
@@ -105,7 +105,7 @@ func TestFileSeekInvalidWhence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer w.Close()
+	defer func() { _ = w.Close() }()
 	var panicked interface{}
 	func() {
 		defer func() { panicked = recover() }()
@@ -152,12 +152,13 @@ func TestWFileFinalizer(t *testing.T) {
 	if err := WriteFile(mem, "f", []byte("x"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	w, err := mem.OpenFile("f", os.O_RDWR, 0644)
-	if err != nil {
-		t.Fatal(err)
+	{
+		w, err := mem.OpenFile("f", os.O_RDWR, 0644)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = w // hold reference until block end so finalizer can run after
 	}
-	_ = w   // hold reference until we drop it
-	w = nil // drop reference so finalizer can run
 	runtime.GC()
 	runtime.GC()
 }
@@ -225,7 +226,7 @@ func TestWFileWriteExtendsData(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer w.Close()
+	defer func() { _ = w.Close() }()
 	// seek to start, then write 10 bytes (file len 1, so copy extends then append)
 	n, err := w.Write([]byte("0123456789"))
 	if err != nil || n != 10 {
@@ -267,7 +268,7 @@ func TestFileSeekOffsetClamp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer w.Close()
+	defer func() { _ = w.Close() }()
 	// Seek past end: offset clamped to len(data)
 	pos, err := w.Seek(100, io.SeekStart)
 	if err != nil {
@@ -295,7 +296,7 @@ func TestWFileWriteExtends(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer w.Close()
+	defer func() { _ = w.Close() }()
 	// Seek to end then write: copy doesn't fit, append path
 	_, _ = w.Seek(0, io.SeekEnd)
 	n, err := w.Write([]byte("cdef"))

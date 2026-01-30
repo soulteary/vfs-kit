@@ -53,7 +53,7 @@ func TestOpenTarBzip2(t *testing.T) {
 
 func TestZipReaderAt(t *testing.T) {
 	f := mustOpen(t, filepath.Join("testdata", "fs.zip"))
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	data, err := io.ReadAll(f)
 	if err != nil {
 		t.Fatal(err)

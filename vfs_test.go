@@ -178,7 +178,7 @@ func TestTmpFS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer fs.Close()
+	defer func() { _ = fs.Close() }()
 	testVFS(t, fs)
 }
 
@@ -219,7 +219,7 @@ func testGoFileCount(t *testing.T, fs VFS) {
 
 func TestGo13Files(t *testing.T) {
 	f := openOptionalTestFile(t, goTestFile)
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	fs, err := TarGzip(f)
 	if err != nil {
 		t.Fatal(err)
@@ -230,12 +230,14 @@ func TestGo13Files(t *testing.T) {
 func TestMounter(t *testing.T) {
 	m := &Mounter{}
 	f := openOptionalTestFile(t, goTestFile)
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	fs, err := TarGzip(f)
 	if err != nil {
 		t.Fatal(err)
 	}
-	m.Mount(fs, "/")
+	if err := m.Mount(fs, "/"); err != nil {
+		t.Fatal(err)
+	}
 	testGoFileCount(t, m)
 }
 
@@ -301,7 +303,7 @@ func hashVFS(t testing.TB, fs VFS) string {
 		if err != nil {
 			return err
 		}
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 		if _, err := io.Copy(sha, f); err != nil {
 			return err
 		}
@@ -315,7 +317,7 @@ func hashVFS(t testing.TB, fs VFS) string {
 
 func TestCompress(t *testing.T) {
 	f := openOptionalTestFile(t, goTestFile)
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	fs, err := TarGzip(f)
 	if err != nil {
 		t.Fatal(err)

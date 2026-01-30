@@ -96,7 +96,7 @@ func TarGzip(r io.Reader) (VFS, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer zr.Close()
+	defer func() { _ = zr.Close() }()
 	return Tar(zr)
 }
 

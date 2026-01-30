@@ -20,7 +20,7 @@ func copyVFS(fs VFS, copier func(p string, info os.FileInfo, f io.Reader) error)
 		if err != nil {
 			return err
 		}
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 		return copier(p[1:], info, f)
 	})
 }

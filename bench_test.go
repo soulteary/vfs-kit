@@ -10,13 +10,13 @@ import (
 
 func BenchmarkLoadGoSrc(b *testing.B) {
 	f := openOptionalTestFile(b, goTestFile)
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	// Decompress to avoid measuring the time to gunzip
 	zr, err := gzip.NewReader(f)
 	if err != nil {
 		b.Fatal(err)
 	}
-	defer zr.Close()
+	defer func() { _ = zr.Close() }()
 	data, err := io.ReadAll(zr)
 	if err != nil {
 		b.Fatal(err)
@@ -31,13 +31,13 @@ func BenchmarkLoadGoSrc(b *testing.B) {
 
 func BenchmarkWalkGoSrc(b *testing.B) {
 	f := openOptionalTestFile(b, goTestFile)
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	fs, err := TarGzip(f)
 	if err != nil {
 		b.Fatal(err)
 	}
 	b.ResetTimer()
 	for ii := 0; ii < b.N; ii++ {
-		Walk(fs, "/", func(_ VFS, _ string, _ os.FileInfo, _ error) error { return nil })
+		_ = Walk(fs, "/", func(_ VFS, _ string, _ os.FileInfo, _ error) error { return nil })
 	}
 }
