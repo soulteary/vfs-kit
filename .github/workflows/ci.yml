@@ -55,11 +55,50 @@ jobs:
         run: go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
       - name: Coverage summary
         run: go tool cover -func=coverage.out
+      - name: Generate coverage report
+        run: go tool cover -html=coverage.out -o coverage.html
       - name: Upload coverage report
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report
-          path: coverage.out
+          path: coverage.html
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          file: ./coverage.out
+          flags: unittests
+          name: codecov-umbrella
+          fail_ci_if_error: false
+
+  lint:
+    name: Code Quality Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go environment (use 1.24 to match golangci-lint)
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Temporarily modify go.mod to match golangci-lint's Go version
+        run: |
+          cp go.mod go.mod.backup
+          sed -i 's/^go 1\.25.*$/go 1.24/' go.mod
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v7
+        with:
+          version: latest
+          args: --timeout=5m
+          only-new-issues: false
+
+      - name: Restore go.mod
+        if: always()
+        run: |
+          mv go.mod.backup go.mod
 
   security-scan:
     name: Dependency Security Scan
