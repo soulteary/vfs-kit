@@ -165,8 +165,7 @@ func TestZipEntryReadFails(t *testing.T) {
 func TestZipEntryOpenFails(t *testing.T) {
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
-	h := &zip.FileHeader{Name: "x", Method: zip.Store}
-	h.SetModTime(time.Now())
+	h := &zip.FileHeader{Name: "x", Method: zip.Store, Modified: time.Now()}
 	w, err := zw.CreateHeader(h)
 	if err != nil {
 		t.Fatal(err)
