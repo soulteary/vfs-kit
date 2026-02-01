@@ -125,6 +125,37 @@ func TestCompressMemory(t *testing.T) {
 	}
 }
 
+// TestCompressOpenFails 覆盖 Compress 遍历时 Open 失败则返回错误
+func TestCompressOpenFails(t *testing.T) {
+	mem := Memory()
+	if err := WriteFile(mem, "a", []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	openErr := os.ErrPermission
+	wrapped := &errOpenVFS{VFS: mem, path: "/a", err: openErr}
+	err := Compress(wrapped)
+	if err != openErr {
+		t.Errorf("Compress when Open fails = %v, want %v", err, openErr)
+	}
+}
+
+// TestCompressSkipsCompressed 覆盖 Compress 中 mode&ModeCompress != 0 时跳过
+func TestCompressSkipsCompressed(t *testing.T) {
+	mem := Memory()
+	if err := WriteFile(mem, "a", []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	w, _ := mem.OpenFile("a", os.O_RDWR, 0644)
+	if c, ok := w.(Compressor); ok {
+		c.SetCompressed(true)
+	}
+	_ = w.Close()
+	// 再次 Compress 不应出错，已压缩文件被跳过
+	if err := Compress(mem); err != nil {
+		t.Fatalf("Compress on already compressed = %v", err)
+	}
+}
+
 func TestIsExistIsNotExist(t *testing.T) {
 	if !IsNotExist(os.ErrNotExist) {
 		t.Error("IsNotExist(os.ErrNotExist) should be true")
@@ -413,5 +444,48 @@ func TestCloneWriteFileFails(t *testing.T) {
 	err := Clone(wrappedDst, mem)
 	if err != errWriteFail {
 		t.Errorf("Clone when WriteFile fails = %v, want errWriteFail", err)
+	}
+}
+
+// TestWalkLstatErrorContinue 覆盖 walk 中 Lstat 失败时 fn 返回 nil 则 continue
+func TestWalkLstatErrorContinue(t *testing.T) {
+	mem := Memory()
+	if err := MkdirAll(mem, "a/b", 0755); err != nil {
+		t.Fatal(err)
+	}
+	myErr := os.ErrPermission
+	wrapped := &errLstatVFS{VFS: mem, path: "/a/b", err: myErr}
+	var visited []string
+	err := Walk(wrapped, "/", func(fs VFS, path string, info os.FileInfo, err error) error {
+		if err != nil && path == "/a/b" {
+			// 不返回错误，让 walk 继续
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		visited = append(visited, path)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// "/" 和 "/a" 应被访问，"/a/b" 因 Lstat 失败被跳过但未中止
+	if len(visited) < 2 {
+		t.Errorf("expected at least 2 visited, got %v", visited)
+	}
+}
+
+// TestRemoveAllOtherError 覆盖 RemoveAll 中 Lstat 返回非 ErrNotExist 时返回错误
+func TestRemoveAllOtherError(t *testing.T) {
+	mem := Memory()
+	if err := MkdirAll(mem, "a", 0755); err != nil {
+		t.Fatal(err)
+	}
+	myErr := os.ErrPermission
+	wrapped := &errLstatVFS{VFS: mem, path: "a", err: myErr}
+	err := RemoveAll(wrapped, "a")
+	if err != myErr {
+		t.Errorf("RemoveAll when Lstat returns non-ErrNotExist = %v, want %v", err, myErr)
 	}
 }

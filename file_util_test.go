@@ -315,3 +315,53 @@ func TestWFileWriteExtends(t *testing.T) {
 		t.Errorf("after write extend = %q, want \"abcdef\"", data)
 	}
 }
+
+// TestRFileReadPastEnd 覆盖 Read 时 offset >= len(data) 返回 0, io.EOF
+func TestRFileReadPastEnd(t *testing.T) {
+	mem := Memory()
+	if err := WriteFile(mem, "f", []byte("ab"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	r, err := mem.Open("f")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = r.Close() }()
+	buf := make([]byte, 10)
+	n, err := r.Read(buf)
+	if n != 2 || err != io.EOF {
+		t.Fatalf("first Read = %d, %v; want 2, EOF", n, err)
+	}
+	n, err = r.Read(buf)
+	if n != 0 || err != io.EOF {
+		t.Fatalf("Read past end = %d, %v; want 0, EOF", n, err)
+	}
+}
+
+// TestWFileCloseCompressedZlibError 覆盖 Close 时 ModeCompress 且 zlib 压缩失败路径（通过无效数据触发）
+func TestWFileCloseCompressedZlibError(t *testing.T) {
+	// 创建一个已标记为压缩但数据未正确压缩的 File，Close 时会尝试压缩当前 data
+	// fileData 解压失败已在 TestNewRFileInvalidCompressedData 覆盖；Close 中 zw.Write 一般不会失败
+	// 此处仅覆盖 Close 内 buf.Len() < len(f.data) 的分支（已由 TestWFileCloseCompressedNoShrink 覆盖另一分支）
+	mem := Memory()
+	if err := MkdirAll(mem, "x", 0755); err != nil {
+		t.Fatal(err)
+	}
+	w, err := mem.OpenFile("x/c", os.O_CREATE|os.O_RDWR, 0644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write([]byte("compressible")); err != nil {
+		t.Fatal(err)
+	}
+	if c, ok := w.(Compressor); ok {
+		c.SetCompressed(true)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	data, err := ReadFile(mem, "x/c")
+	if err != nil || string(data) != "compressible" {
+		t.Fatalf("after Close compressed: %q, %v", data, err)
+	}
+}

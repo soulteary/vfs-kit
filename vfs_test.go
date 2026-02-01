@@ -3,6 +3,7 @@ package vfs
 import (
 	"crypto/sha1"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -470,6 +471,11 @@ func TestReadOnlyWriteForbidden(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = r.Close()
+	// OpenFile with O_RDWR is forbidden (has write flag)
+	_, err = ro.OpenFile("f", os.O_RDWR, 0)
+	if err != ErrReadOnlyFileSystem {
+		t.Errorf("OpenFile(O_RDWR) on RO fs = %v, want ErrReadOnlyFileSystem", err)
+	}
 }
 
 // --- Rewriter ---
@@ -692,6 +698,33 @@ func TestMounterCompileTimeCheck(t *testing.T) {
 	_ = mounterCompileTimeCheck()
 }
 
+// TestMemoryRemoveNonexistent 覆盖 Remove 时 entry 不存在（Find 返回 err）
+func TestMemoryRemoveNonexistent(t *testing.T) {
+	mem := Memory()
+	if err := MkdirAll(mem, "d", 0755); err != nil {
+		t.Fatal(err)
+	}
+	err := mem.Remove("d/nonexistent")
+	if err == nil {
+		t.Fatal("Remove(nonexistent) should fail")
+	}
+	if !IsNotExist(err) {
+		t.Errorf("Remove(nonexistent) = %v, want ErrNotExist", err)
+	}
+}
+
+// TestMemoryStatWithLeadingSlash 覆盖 entry 中 path 以 '/' 开头被 trim 的分支
+func TestMemoryStatWithLeadingSlash(t *testing.T) {
+	mem := Memory()
+	if err := WriteFile(mem, "f", []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	info, err := mem.Stat("/f")
+	if err != nil || info.Name() != "f" {
+		t.Errorf("Stat(\"/f\") = %v, %v", info, err)
+	}
+}
+
 func TestMounterOpenFileReadDirMkdirRemove(t *testing.T) {
 	m := &Mounter{}
 	mem := Memory()
@@ -820,4 +853,124 @@ func TestMemoryOpenFileTruncate(t *testing.T) {
 	if string(data) != "new" {
 		t.Errorf("after O_TRUNC write = %q, want \"new\"", data)
 	}
+}
+
+// TestMemoryMkdirRoot 覆盖 Mkdir("/") 或空 base 且 dir 为根目录时返回 ErrExist
+func TestMemoryMkdirRoot(t *testing.T) {
+	mem := Memory()
+	err := mem.Mkdir("/", 0755)
+	if err == nil {
+		t.Fatal("Mkdir(\"/\") should fail")
+	}
+	if !IsExist(err) {
+		t.Errorf("Mkdir(\"/\") = %v, want ErrExist", err)
+	}
+}
+
+// TestMemoryMkdirEmptyName 覆盖 path 为 "" 时 base 为空且 dir 为空返回 ErrExist
+func TestMemoryMkdirEmptyName(t *testing.T) {
+	mem := Memory()
+	// cleanPath("") 得到 ""，path.Split("") 得到 ("","")，走 base=="" 且 dir=="" 分支
+	err := mem.Mkdir("", 0755)
+	if err == nil {
+		t.Fatal("Mkdir(\"\") should fail")
+	}
+	if !IsExist(err) {
+		t.Errorf("Mkdir(\"\") = %v, want ErrExist", err)
+	}
+}
+
+// TestMemoryOpenFileReadOnly 覆盖 OpenFile 仅 O_RDONLY 时返回只读 WFile
+func TestMemoryOpenFileReadOnly(t *testing.T) {
+	mem := Memory()
+	if err := WriteFile(mem, "f", []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	w, err := mem.OpenFile("f", os.O_RDONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = w.Close() }()
+	_, err = w.Write([]byte("y"))
+	if err != ErrReadOnly {
+		t.Errorf("Write on RDONLY file = %v, want ErrReadOnly", err)
+	}
+}
+
+// TestMapWithExplicitMode 覆盖 Map 中 file.Mode != 0 时不再默认 0644
+func TestMapWithExplicitMode(t *testing.T) {
+	files := map[string]*File{
+		"a": {Data: []byte("a"), Mode: 0600},
+		"b": {Data: []byte("b"), Mode: 0755},
+	}
+	fs, err := Map(files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := ReadFile(fs, "a")
+	if err != nil || string(data) != "a" {
+		t.Fatalf("ReadFile(a) = %q, %v", data, err)
+	}
+	info, err := fs.Stat("a")
+	if err != nil || info.Mode()&0777 != 0600 {
+		t.Errorf("Stat(a) Mode = %o, want 0600", info.Mode()&0777)
+	}
+}
+
+// TestMounterMountPointNormalize 覆盖 Mount 时 point "." 或 "" 规范为 "/"
+func TestMounterMountPointNormalize(t *testing.T) {
+	m := &Mounter{}
+	mem := Memory()
+	if err := WriteFile(mem, "f", []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Mount(mem, "."); err != nil {
+		t.Fatal(err)
+	}
+	data, err := ReadFile(m, "/f")
+	if err != nil || string(data) != "x" {
+		t.Fatalf("ReadFile(/f) after Mount(.) = %q, %v", data, err)
+	}
+	m2 := &Mounter{}
+	mem2 := Memory()
+	_ = WriteFile(mem2, "g", []byte("g"), 0644)
+	if err := m2.Mount(mem2, ""); err != nil {
+		t.Fatal(err)
+	}
+	data2, err := ReadFile(m2, "/g")
+	if err != nil || string(data2) != "g" {
+		t.Fatalf("ReadFile(/g) after Mount(\"\") = %q, %v", data2, err)
+	}
+}
+
+// TestWalkReadDirError 覆盖 walk 中 ReadDir 失败时调用 fn 并返回错误
+func TestWalkReadDirError(t *testing.T) {
+	mem := Memory()
+	if err := MkdirAll(mem, "a/b", 0755); err != nil {
+		t.Fatal(err)
+	}
+	readDirErr := errors.New("readdir failed")
+	wrapped := &errReadDirVFSWrapper{VFS: mem, failPath: "/", failErr: readDirErr}
+	err := Walk(wrapped, "/", func(fs VFS, path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != readDirErr {
+		t.Errorf("Walk when ReadDir fails = %v, want readDirErr", err)
+	}
+}
+
+type errReadDirVFSWrapper struct {
+	VFS
+	failPath string
+	failErr  error
+}
+
+func (e *errReadDirVFSWrapper) ReadDir(path string) ([]os.FileInfo, error) {
+	if path == e.failPath {
+		return nil, e.failErr
+	}
+	return e.VFS.ReadDir(path)
 }

@@ -1,12 +1,15 @@
 package vfs
 
 import (
+	"archive/zip"
 	"bytes"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func testOpenedVFS(t *testing.T, fs VFS) {
@@ -115,4 +118,74 @@ func TestZipWithoutReaderAt(t *testing.T) {
 		t.Fatal(err)
 	}
 	testOpenedVFS(t, fs)
+}
+
+// TestTarGzipInvalidData 覆盖 TarGzip 当 gzip.NewReader 失败时返回错误
+func TestTarGzipInvalidData(t *testing.T) {
+	_, err := TarGzip(bytes.NewReader([]byte("not gzip data")))
+	if err == nil {
+		t.Fatal("TarGzip with invalid gzip data should fail")
+	}
+}
+
+// failingReaderAt 嵌入 *bytes.Reader 并在 offset >= failAfter 时使 ReadAt 返回错误，用于覆盖 Zip 中 io.ReadAll 失败路径
+type failingReaderAt struct {
+	*bytes.Reader
+	failAfter int64
+	err       error
+}
+
+func (f *failingReaderAt) ReadAt(p []byte, off int64) (n int, err error) {
+	if off >= f.failAfter {
+		return 0, f.err
+	}
+	return f.Reader.ReadAt(p, off)
+}
+
+func TestZipEntryReadFails(t *testing.T) {
+	p := filepath.Join("testdata", "fs.zip")
+	data, err := os.ReadFile(p)
+	if err != nil {
+		t.Skipf("testdata not found: %v", err)
+	}
+	// 在 offset >= 100 时失败，以便第二个或后续 zip 条目读取时触发错误
+	failErr := errors.New("read failed")
+	wrapped := &failingReaderAt{Reader: bytes.NewReader(data), failAfter: 100, err: failErr}
+	_, err = Zip(wrapped, int64(len(data)))
+	if err == nil {
+		t.Fatal("Zip when entry read fails should return error")
+	}
+	if err != failErr && !errors.Is(err, failErr) && !strings.Contains(err.Error(), "read failed") {
+		t.Errorf("Zip error = %v, want read failure", err)
+	}
+}
+
+// TestZipEntryOpenFails 覆盖 Zip 当某条目的 file.Open() 失败时返回错误。
+// 先用 Store 创建合法 zip，再在中央目录中把 compression method 改为 99，使读取时 Open() 报错。
+func TestZipEntryOpenFails(t *testing.T) {
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	h := &zip.FileHeader{Name: "x", Method: zip.Store}
+	h.SetModTime(time.Now())
+	w, err := zw.CreateHeader(h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = w.Write([]byte("data"))
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	data := buf.Bytes()
+	// 中央目录文件头签名 0x02014b50，其后 +10 为 compression method (2 bytes)
+	cdSig := []byte{0x50, 0x4b, 0x01, 0x02}
+	i := bytes.Index(data, cdSig)
+	if i < 0 || i+12 > len(data) {
+		t.Fatal("central directory header not found")
+	}
+	data[i+10] = 99
+	data[i+11] = 0
+	_, err = Zip(bytes.NewReader(data), int64(len(data)))
+	if err == nil {
+		t.Fatal("Zip when entry Open() fails (unsupported method) should return error")
+	}
 }

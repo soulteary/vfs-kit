@@ -169,6 +169,25 @@ func TestAsReadOnlyFS_ReadDirN(t *testing.T) {
 	}
 }
 
+// TestAsReadOnlyFS_ReadDirZero 覆盖 ReadDir(n) 当 n <= 0 时返回全部剩余条目
+func TestAsReadOnlyFS_ReadDirZero(t *testing.T) {
+	mem := Memory()
+	_ = WriteFile(mem, "a", []byte("a"), 0644)
+	_ = WriteFile(mem, "b", []byte("b"), 0644)
+	ro := AsReadOnlyFS(mem)
+	f, err := ro.Open(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = f.Close() }()
+	df := f.(fs.ReadDirFile)
+	// ReadDir(0) 应返回所有条目（io/fs 约定）
+	ents, err := df.ReadDir(0)
+	if err != nil || len(ents) != 2 {
+		t.Fatalf("ReadDir(0) = %v, len=%d; want 2 entries", err, len(ents))
+	}
+}
+
 func TestAsReadOnlyFS_InvalidPath(t *testing.T) {
 	mem := Memory()
 	_ = WriteFile(mem, "f", []byte("x"), 0644)

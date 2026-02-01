@@ -5,6 +5,8 @@
 [![License](https://img.shields.io/badge/license-MPL%202.0-blue.svg)](LICENSE)
 [![codecov](https://codecov.io/gh/soulteary/vfs-kit/graph/badge.svg)](https://codecov.io/gh/soulteary/vfs-kit)
 
+[中文文档](README_CN.md)
+
 Virtual File Systems with read-write support in Go. Zero external dependencies.
 
 This package is extracted from [rainycape/vfs](https://github.com/rainycape/vfs) and maintained as [github.com/soulteary/vfs-kit](https://github.com/soulteary/vfs-kit) for use across soulteary projects (e.g. [apt-proxy](https://github.com/soulteary/apt-proxy)).

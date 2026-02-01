@@ -78,6 +78,12 @@ jobs:
       - name: Display coverage summary
         run: go tool cover -func=coverage.out
 
+      - name: Check coverage threshold
+        run: |
+          COVER=$(go tool cover -func=coverage.out | grep total | awk '{gsub(/%/,"",$3); print $3}')
+          echo "Current coverage: ${COVER}%"
+          echo "$COVER" | awk '{if ($1 < 92.5) exit 1}' || { echo "Coverage ${COVER}% is below threshold 92.5%"; exit 1; }
+
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5
         with:
