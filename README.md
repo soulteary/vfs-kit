@@ -1,7 +1,7 @@
 # vfs-kit
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/soulteary/vfs-kit.svg)](https://pkg.go.dev/github.com/soulteary/vfs-kit)
-[![Go Report Card](https://goreportcard.com/badge/github.com/soulteary/vfs-kit)](https://goreportcard.com/report/github.com/soulteary/vfs-kit)
+[![Go Report Card](.github/goreportcard.svg)](.github/goreportcard-report.md)
 [![License](https://img.shields.io/badge/license-MPL%202.0-blue.svg)](LICENSE)
 [![codecov](https://codecov.io/gh/soulteary/vfs-kit/graph/badge.svg)](https://codecov.io/gh/soulteary/vfs-kit)
 
