@@ -264,6 +264,23 @@ if c, ok := entry.(vfs.Compressor); ok {
 
 `vfs.ModeCompress` is the mode bit used to mark a compressed entry.
 
+## Concurrency
+
+The in-memory VFS is safe to use from several goroutines. Each `*File` carries
+its own `sync.RWMutex`, and everything that reads or writes an entry's contents
+or mode takes it — including opening a file while another goroutine is closing
+a handle for the same path.
+
+Two things that lock does *not* cover:
+
+- **A single open handle is not shared state.** `Read`, `Seek` and `Write` move
+  one offset. Give each goroutine its own handle rather than passing one around.
+- **Containment is lexical, not a lock.** Two goroutines writing the same path
+  race for the final contents, the same as two processes writing one file.
+
+The on-disk VFS inherits the operating system's semantics; it holds no locks of
+its own.
+
 ## Errors
 
 | Sentinel | Meaning |
@@ -314,6 +331,26 @@ vfs.LogCloseError = func(err error) { log.Printf("vfs close error: %v", err) }
 
 See the [package documentation](https://pkg.go.dev/github.com/soulteary/vfs-kit)
 for full signatures.
+
+## Upgrade Notes (v1.4.1)
+
+No API was added, removed or changed. One data race is gone.
+
+- **Reading an entry's contents or mode now takes the file's lock.** `*File`
+  already carried an `RWMutex` and the writers took it — `(*file).Close` sets
+  `Data`, and clears `ModeCompress` from `Mode`, under the write lock — but the
+  readers did not, so the lock protected nothing. Opening a file while another
+  goroutine closed a handle for the same path was a race, reported by `-race`
+  between `fileData` and `Close`. `fileData`, `(*File).FileMode` and
+  `(*file).IsCompressed` now take the read side. **If you run the in-memory VFS
+  under `-race` in your own tests, this is the report that goes away.**
+- **`fileData` decompresses outside the lock.** It snapshots `Data` and `Mode`
+  under the read lock and releases before inflating, so a large compressed entry
+  does not hold other openers off the file.
+- **`(*file).Close` is safe to call from several goroutines.** It pre-checked
+  the handle's `closed` flag outside the lock, while writing it under the lock,
+  so concurrent closes of one handle raced on it. The check now happens under
+  the lock; `Close` stays idempotent.
 
 ## Upgrade Notes (v1.4.0)
 
