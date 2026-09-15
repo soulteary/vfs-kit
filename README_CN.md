@@ -257,6 +257,19 @@ if c, ok := entry.(vfs.Compressor); ok {
 
 `vfs.ModeCompress` 是用来标记"已压缩"条目的 mode 位。
 
+## 并发
+
+**文件内容**可以在多个 goroutine 中安全使用。每个 `*File` 自带 `sync.RWMutex`，凡是读写条目内容或 mode 的地方都会持有它 —— 包括在另一个 goroutine 正关闭同路径句柄时打开该文件。
+
+**目录结构没有完全同步。** `Mkdir`、`Remove` 和创建条目都会持有父目录的锁，但 `Remove` 在取得目标目录自身的锁**之前**就检查它是否为空。因此，在另一个 goroutine 往某目录中创建条目的同时删除该目录是一个数据竞态，且创建有可能落进一个正在被摘除的目录里。**请自行串行化目录删除，或在多 goroutine 使用期间保持目录树形状不变。** 其余组合在 `-race` 下均干净：一边读文件一边写、两个 goroutine 在同一目录下创建不同文件、删除一个正被打开的**文件**、`Mkdir` 与 `Remove`、以及 `Stat` 与写入。
+
+文件锁另外**不**覆盖两件事：
+
+- **单个已打开的句柄不是共享状态。** `Read`、`Seek`、`Write` 移动的是同一个偏移量。请给每个 goroutine 各自的句柄，而不是传递同一个。
+- **路径包含是词法的，不是锁。** 两个 goroutine 写同一路径会争抢最终内容，与两个进程写同一个文件无异。
+
+磁盘 VFS 沿用操作系统的语义，自身不持有任何锁。
+
 ## 错误
 
 | 哨兵错误 | 含义 |
@@ -304,6 +317,14 @@ vfs.LogCloseError = func(err error) { log.Printf("vfs close error: %v", err) }
 | `LogCloseError` | 无处返回的关闭失败钩子 |
 
 完整签名见[包文档](https://pkg.go.dev/github.com/soulteary/vfs-kit)。
+
+## 升级说明（v1.4.1）
+
+没有新增、移除或改变任何 API。修掉了一个数据竞态。
+
+- **读取条目的内容或 mode 现在会持有该文件的锁。** `*File` 本来就带着 `RWMutex`，写方也确实拿了 —— `(*file).Close` 在写锁内设置 `Data`、并从 `Mode` 中清除 `ModeCompress` —— 但读方没拿，所以这把锁什么都没保护到。在另一个 goroutine 关闭同路径句柄时打开文件会触发竞态，`-race` 会在 `fileData` 与 `Close` 之间报出。现在 `fileData`、`(*File).FileMode` 和 `(*file).IsCompressed` 都会取读侧。**如果你在自己的测试里用 `-race` 跑内存 VFS，消失的就是这条报告。**
+- **`fileData` 在锁外解压。** 它在读锁内快照 `Data` 与 `Mode`，释放之后再解压，因此一个较大的压缩条目不会把其他打开者挡在外面。
+- **`(*file).Close` 可以从多个 goroutine 调用。** 它此前在锁外预检句柄的 `closed` 标志，而该标志是在锁内写入的，因此同一句柄上的并发 `Close` 会在它上面竞态。现在检查移到了锁内；`Close` 仍然是幂等的。
 
 ## 升级说明（v1.4.0）
 
