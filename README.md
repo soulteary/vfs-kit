@@ -266,12 +266,23 @@ if c, ok := entry.(vfs.Compressor); ok {
 
 ## Concurrency
 
-The in-memory VFS is safe to use from several goroutines. Each `*File` carries
+**File contents** are safe to use from several goroutines. Each `*File` carries
 its own `sync.RWMutex`, and everything that reads or writes an entry's contents
-or mode takes it — including opening a file while another goroutine is closing
-a handle for the same path.
+or mode takes it — including opening a file while another goroutine closes a
+handle for the same path.
 
-Two things that lock does *not* cover:
+**Directory structure is not fully synchronized.** `Mkdir`, `Remove` and
+creating an entry each take the parent directory's lock, but `Remove` checks
+whether a directory is empty *before* taking that directory's own lock. Removing
+a directory while another goroutine creates an entry inside it is therefore a
+data race, and the creation can land in a directory that is being detached.
+**Serialize directory removal yourself, or keep the tree shape fixed while
+several goroutines use it.** Everything else measured clean under `-race`:
+reading a file while another writes it, two goroutines creating different files
+in one directory, removing a *file* while it is open, `Mkdir` against `Remove`,
+and `Stat` against a write.
+
+Two more things the file lock does not cover:
 
 - **A single open handle is not shared state.** `Read`, `Seek` and `Write` move
   one offset. Give each goroutine its own handle rather than passing one around.
