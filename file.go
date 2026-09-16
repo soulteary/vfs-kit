@@ -87,6 +87,13 @@ type Dir struct {
 	EntryNames []string
 	// Entries in the same order as EntryNames.
 	Entries []Entry
+	// removed reports whether the directory has been unlinked from its
+	// parent. It is written and read under the directory's own write lock,
+	// so a goroutine that resolved this directory just before it was removed
+	// sees it set once it takes the lock to add an entry. Filesystems that
+	// build their own Dir trees never set it, which leaves the zero value:
+	// the directory is treated as live, exactly as before.
+	removed bool
 }
 
 func (d *Dir) Type() EntryType {
@@ -109,6 +116,9 @@ func (d *Dir) ModificationTime() time.Time {
 
 // Add ads a new entry to the directory. If there's already an
 // entry ith the same name, an error is returned.
+// Callers must hold the directory's write lock: memoryFileSystem.Remove
+// checks a directory's emptiness and unlinks it under that same lock, and
+// relies on no entry being added in between.
 // Binary search could be used here for large directories (future optimization).
 func (d *Dir) Add(name string, entry Entry) error {
 	for ii, v := range d.EntryNames {
@@ -139,7 +149,8 @@ func (d *Dir) Add(name string, entry Entry) error {
 
 // Find returns the entry with the given name and its index,
 // or an error if an entry with that name does not exist in
-// the directory.
+// the directory. Callers must hold at least the directory's
+// read lock.
 func (d *Dir) Find(name string) (Entry, int, error) {
 	for ii, v := range d.EntryNames {
 		if v == name {
