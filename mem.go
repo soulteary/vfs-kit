@@ -10,6 +10,12 @@ import (
 	"time"
 )
 
+// ErrRemoveRoot is returned when removing the root of a file system, which
+// has no parent to be unlinked from. RemoveAll reaches it after emptying the
+// tree, so callers clearing a whole in-memory VFS can ignore it with
+// errors.Is.
+var ErrRemoveRoot = errors.New("can't remove the filesystem root")
+
 var (
 	errNoEmptyNameFile = errors.New("can't create file with empty name")
 	errNoEmptyNameDir  = errors.New("can't create directory with empty name")
@@ -96,6 +102,11 @@ func (fs *memoryFileSystem) OpenFile(path string, flag int, mode os.FileMode) (W
 
 	d.Lock()
 	defer d.Unlock()
+	if d.removed {
+		// The directory was unlinked between resolving it above and taking
+		// its lock, so nothing can live at this path any more.
+		return nil, os.ErrNotExist
+	}
 	f, _, _ := d.Find(base)
 	if f == nil && flag&os.O_CREATE == 0 {
 		return nil, os.ErrNotExist
@@ -189,6 +200,9 @@ func (fs *memoryFileSystem) Mkdir(path string, perm os.FileMode) error {
 	}
 	d.Lock()
 	defer d.Unlock()
+	if d.removed {
+		return os.ErrNotExist
+	}
 	if _, p, _ := d.Find(base); p >= 0 {
 		return os.ErrExist
 	}
@@ -207,18 +221,50 @@ func (fs *memoryFileSystem) Remove(path string) error {
 	if err != nil {
 		return err
 	}
-	if entry.Type() == EntryTypeDir && len(entry.(*Dir).Entries) > 0 {
-		return fmt.Errorf("directory %s not empty", path)
+	if dir == nil {
+		// path resolved to the root, which has no parent to unlink it from.
+		// Without this the nil parent below is dereferenced, which is what
+		// RemoveAll(fs, "/") used to panic on.
+		return ErrRemoveRoot
 	}
-	// Lock again, the position might have changed
+	// Take the parent first and the entry itself second. This is the only
+	// place that holds two Dir locks at once, and it always takes the outer
+	// directory first, so the nesting can't produce a cycle.
 	dir.Lock()
-	_, pos, err := dir.Find(pathpkg.Base(path))
-	if err == nil {
-		dir.EntryNames = append(dir.EntryNames[:pos], dir.EntryNames[pos+1:]...)
-		dir.Entries = append(dir.Entries[:pos], dir.Entries[pos+1:]...)
+	defer dir.Unlock()
+
+	d, isDir := entry.(*Dir)
+	if isDir {
+		// The emptiness check and the unlink have to happen under one
+		// continuous hold of d's write lock. Dir.Add always runs under that
+		// lock, so releasing it in between would let an entry land in a
+		// directory this call is about to detach: both operations report
+		// success and the new entry is unreachable.
+		d.Lock()
+		defer d.Unlock()
+		if len(d.Entries) > 0 {
+			return fmt.Errorf("directory %s not empty", path)
+		}
 	}
-	dir.Unlock()
-	return err
+	// Look the position up again, it might have changed since fs.entry.
+	found, pos, err := dir.Find(pathpkg.Base(path))
+	if err != nil {
+		return err
+	}
+	if isDir && found != entry {
+		// The name was rebound between the lookup and the lock, so the
+		// emptiness check above says nothing about what is there now.
+		return os.ErrNotExist
+	}
+	dir.EntryNames = append(dir.EntryNames[:pos], dir.EntryNames[pos+1:]...)
+	dir.Entries = append(dir.Entries[:pos], dir.Entries[pos+1:]...)
+	if isDir {
+		// Anyone already waiting on d's lock to add an entry resolved the
+		// path before this unlink and must not create into a detached
+		// directory.
+		d.removed = true
+	}
+	return nil
 }
 
 func (fs *memoryFileSystem) String() string {

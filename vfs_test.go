@@ -713,6 +713,79 @@ func TestMemoryRemoveNonexistent(t *testing.T) {
 	}
 }
 
+// The root has no parent to unlink it from. Remove used to dereference that
+// nil parent and panic.
+func TestMemoryRemoveRoot(t *testing.T) {
+	mem := Memory()
+	for _, path := range []string{"/", "", ".", "//", "/.."} {
+		if err := mem.Remove(path); err == nil {
+			t.Errorf("Remove(%q) = nil, want an error", path)
+		}
+	}
+}
+
+// RemoveAll walks down to the root and then removes the root itself, so it
+// reached the nil parent above through the package's own helper.
+func TestRemoveAllRootDoesNotPanic(t *testing.T) {
+	mem := Memory()
+	if err := MkdirAll(mem, "a/b", 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteFile(mem, "a/b/f", []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := RemoveAll(mem, "/"); err != ErrRemoveRoot {
+		t.Errorf("RemoveAll(\"/\") = %v, want %v", err, ErrRemoveRoot)
+	}
+	// Everything below the root is still gone.
+	infos, err := mem.ReadDir("/")
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	if len(infos) != 0 {
+		t.Errorf("after RemoveAll(\"/\") the root holds %d entries, want 0", len(infos))
+	}
+}
+
+// A goroutine that resolved a directory just before it was removed holds a
+// live *Dir that is no longer reachable from the root, and must not be able
+// to create in it. Driving that interleaving from a test is inherently racy,
+// so this reconstructs the state it leaves behind: the same, already removed
+// *Dir, put back under its old name.
+func TestMemoryCreateInRemovedDirectoryIsRejected(t *testing.T) {
+	fs := newMemory()
+	if err := fs.Mkdir("/d", 0755); err != nil {
+		t.Fatal(err)
+	}
+	d, err := fs.dirEntry("d")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fs.Remove("/d"); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+	d.RLock()
+	removed := d.removed
+	d.RUnlock()
+	if !removed {
+		t.Fatal("Remove did not mark the unlinked directory as removed")
+	}
+
+	fs.root.Lock()
+	err = fs.root.Add("d", d)
+	fs.root.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := fs.OpenFile("/d/f", os.O_CREATE|os.O_WRONLY, 0600); !IsNotExist(err) {
+		t.Errorf("OpenFile in a removed directory = %v, want ErrNotExist", err)
+	}
+	if err := fs.Mkdir("/d/sub", 0755); !IsNotExist(err) {
+		t.Errorf("Mkdir in a removed directory = %v, want ErrNotExist", err)
+	}
+}
+
 // TestMemoryStatWithLeadingSlash 覆盖 entry 中 path 以 '/' 开头被 trim 的分支
 func TestMemoryStatWithLeadingSlash(t *testing.T) {
 	mem := Memory()

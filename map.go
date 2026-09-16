@@ -40,7 +40,13 @@ func Map(files map[string]*File) (VFS, error) {
 			prevDir = dir
 			prevDirPath = fileDir
 		}
-		if err := dir.Add(fileBase, file); err != nil {
+		// Map builds a filesystem nobody else holds yet, but Dir.Add is
+		// documented to run under the directory's write lock and Remove now
+		// relies on that being true everywhere.
+		dir.Lock()
+		err := dir.Add(fileBase, file)
+		dir.Unlock()
+		if err != nil {
 			return nil, err
 		}
 	}
