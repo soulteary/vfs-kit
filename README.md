@@ -378,11 +378,13 @@ data races and one panic are gone.
   lock across the emptiness check and the unlink, and marks the directory
   detached. **A creation that resolved the directory before it was removed now
   fails with `os.ErrNotExist` instead of succeeding into nothing.**
-- **`Remove` no longer unlinks a directory it never checked.** If the name was
-  rebound to a different directory between resolving it and locking the parent,
-  the emptiness check applied to the old one and the new one was unlinked
-  regardless of its contents. `Remove` now confirms it is unlinking the entry it
-  validated, and returns `os.ErrNotExist` otherwise.
+- **`Remove` no longer unlinks an entry it never checked.** It looked the name
+  up again after locking the parent, so a name rebound in between was unlinked
+  regardless of what it now held: the emptiness check had applied to the
+  previous occupant, and rebinding can change the type, so a `Remove` that
+  resolved a *file* could drop a whole directory without ever checking it was
+  empty. `Remove` now confirms it is unlinking the entry it resolved, and
+  returns `os.ErrNotExist` otherwise.
 - **`Remove` on the filesystem root returns an error instead of panicking.** The
   root has no parent to unlink it from, and that nil parent was dereferenced.
   `RemoveAll(fs, "/")` reached it through the package's own helper. It now

@@ -251,9 +251,12 @@ func (fs *memoryFileSystem) Remove(path string) error {
 	if err != nil {
 		return err
 	}
-	if isDir && found != entry {
-		// The name was rebound between the lookup and the lock, so the
-		// emptiness check above says nothing about what is there now.
+	if found != entry {
+		// The name was rebound between the lookup and the lock, so nothing
+		// checked above applies to what is there now. This matters whatever
+		// was resolved, not just for directories: a file can be replaced by
+		// a directory, and unlinking that without the emptiness check would
+		// drop a whole subtree.
 		return os.ErrNotExist
 	}
 	dir.EntryNames = append(dir.EntryNames[:pos], dir.EntryNames[pos+1:]...)

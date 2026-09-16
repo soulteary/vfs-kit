@@ -193,19 +193,34 @@ func TestRemoveNeverDetachesACreatedEntry(t *testing.T) {
 	}
 }
 
-// Remove validates emptiness on the directory it resolved, so it must not
-// unlink a different directory that took over the name in the meantime.
-// Against the original code this fails within a couple of thousand rounds,
+// Remove unlinks the entry it resolved, not whatever holds the name by the
+// time it takes the parent's lock. Rebinding a name in that window can change
+// the entry's type too, so a stale Remove that resolved a *file* could
+// otherwise unlink a directory without ever checking that it is empty and drop
+// the whole subtree with it.
+//
+// Against the original code these fail within a couple of thousand rounds,
 // because the unlocked emptiness check misses the same interleaving. Against
-// code that has the locking fix but not the identity check it is a low-rate
-// detector: that window is a few instructions wide and lost about 2 files in
-// 200000 rounds.
+// code that has the locking fix but not the identity check they are weak: that
+// window is a few instructions wide and loses a handful of entries per 200000
+// rounds. At the 20000 rounds below, the file case passed 6 out of 6 runs
+// against code missing the check and only failed 3 out of 3 at 200000. Treat a
+// pass here as a regression net for the original defect, not as proof.
 func TestRemoveDoesNotUnlinkARebindedDirectory(t *testing.T) {
+	removeRebindLoop(t, func(fs VFS) error { return fs.Mkdir("/x", 0755) })
+}
+
+func TestRemoveDoesNotUnlinkADirectoryThatReplacedAFile(t *testing.T) {
+	removeRebindLoop(t, func(fs VFS) error { return WriteFile(fs, "/x", []byte("v"), 0600) })
+}
+
+func removeRebindLoop(t *testing.T, seed func(VFS) error) {
+	t.Helper()
 	const rounds = 20000
 	for round := 0; round < rounds; round++ {
 		fs := Memory()
-		if err := fs.Mkdir("/d", 0755); err != nil {
-			t.Fatalf("Mkdir: %v", err)
+		if err := seed(fs); err != nil {
+			t.Fatalf("seed: %v", err)
 		}
 		created := false
 		var start, wg sync.WaitGroup
@@ -214,18 +229,18 @@ func TestRemoveDoesNotUnlinkARebindedDirectory(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			start.Wait()
-			_ = fs.Remove("/d")
+			_ = fs.Remove("/x")
 		}()
 		go func() {
 			defer wg.Done()
 			start.Wait()
-			// Drop the directory the other goroutine may have resolved and
-			// put a fresh, non-empty one at the same name.
-			_ = fs.Remove("/d")
-			if err := fs.Mkdir("/d", 0755); err != nil {
+			// Drop whatever the other goroutine may have resolved and put a
+			// fresh, non-empty directory at the same name.
+			_ = fs.Remove("/x")
+			if err := fs.Mkdir("/x", 0755); err != nil {
 				return
 			}
-			w, err := fs.OpenFile("/d/f", os.O_CREATE|os.O_WRONLY, 0600)
+			w, err := fs.OpenFile("/x/f", os.O_CREATE|os.O_WRONLY, 0600)
 			if err != nil {
 				return
 			}
@@ -236,8 +251,8 @@ func TestRemoveDoesNotUnlinkARebindedDirectory(t *testing.T) {
 		wg.Wait()
 
 		if created {
-			if _, err := fs.Stat("/d/f"); err != nil {
-				t.Fatalf("round %d: /d/f was created but a stale Remove unlinked its directory: %v", round, err)
+			if _, err := fs.Stat("/x/f"); err != nil {
+				t.Fatalf("round %d: /x/f was created but a stale Remove unlinked its directory: %v", round, err)
 			}
 		}
 	}
