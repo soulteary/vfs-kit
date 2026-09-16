@@ -271,16 +271,20 @@ its own `sync.RWMutex`, and everything that reads or writes an entry's contents
 or mode takes it — including opening a file while another goroutine closes a
 handle for the same path.
 
-**Directory structure is not fully synchronized.** `Mkdir`, `Remove` and
-creating an entry each take the parent directory's lock, but `Remove` checks
-whether a directory is empty *before* taking that directory's own lock. Removing
-a directory while another goroutine creates an entry inside it is therefore a
-data race, and the creation can land in a directory that is being detached.
-**Serialize directory removal yourself, or keep the tree shape fixed while
-several goroutines use it.** Everything else measured clean under `-race`:
-reading a file while another writes it, two goroutines creating different files
-in one directory, removing a *file* while it is open, `Mkdir` against `Remove`,
-and `Stat` against a write.
+**Directory structure is synchronized as well.** `Mkdir`, `Remove` and creating
+an entry take the parent directory's lock, and `Remove` holds the directory it
+is unlinking under that directory's own write lock across both the emptiness
+check and the unlink. Removing a directory while another goroutine creates an
+entry inside it resolves one way or the other, never both: either the creation
+lands first and the removal reports `directory ... not empty`, or the removal
+lands first and the creation reports `os.ErrNotExist`. A creation is never
+silently dropped into a detached directory. **Handle `os.ErrNotExist` from
+`OpenFile` and `Mkdir` if you remove directories while other goroutines write.**
+
+Measured clean under `-race`: reading a file while another writes it, two
+goroutines creating different files in one directory, removing a *file* while
+it is open, `Mkdir` against `Remove`, `Stat` against a write, and removing a
+directory while an entry is created inside it.
 
 Two more things the file lock does not cover:
 
@@ -301,6 +305,7 @@ its own.
 | `ErrReadOnlyFileSystem` | The underlying file system itself is read-only |
 | `ErrWriteOnly` | A read was attempted on a write-only file |
 | `ErrSkipDir` | Returned from a `WalkFunc` to skip a directory |
+| `ErrRemoveRoot` | `Remove` was called on the file system root, which has no parent |
 
 Match them with `errors.Is`. `vfs.IsExist` and `vfs.IsNotExist` classify
 existence errors from any backend.
@@ -345,7 +350,8 @@ for full signatures.
 
 ## Upgrade Notes (v1.4.1)
 
-No API was added, removed or changed. One data race is gone.
+No exported API was removed or changed, and one sentinel error was added. Two
+data races and one panic are gone.
 
 - **Reading an entry's contents or mode now takes the file's lock.** `*File`
   already carried an `RWMutex` and the writers took it — `(*file).Close` sets
@@ -362,6 +368,31 @@ No API was added, removed or changed. One data race is gone.
   the handle's `closed` flag outside the lock, while writing it under the lock,
   so concurrent closes of one handle raced on it. The check now happens under
   the lock; `Close` stays idempotent.
+- **Removing a directory is now atomic against entry creation.** `Remove` read
+  the target directory's entry count *before* taking that directory's lock,
+  while `Dir.Add` mutates the same slice under it, which `-race` reports as a
+  write/read pair between `Dir.Add` and `Remove`. The same gap let a directory
+  be unlinked just after another goroutine created an entry in it: both calls
+  returned success and the entry was unreachable, about 3 losses per 2000
+  attempts in a two-goroutine loop. `Remove` now holds the directory's write
+  lock across the emptiness check and the unlink, and marks the directory
+  detached. **A creation that resolved the directory before it was removed now
+  fails with `os.ErrNotExist` instead of succeeding into nothing.**
+- **`Remove` no longer unlinks a directory it never checked.** If the name was
+  rebound to a different directory between resolving it and locking the parent,
+  the emptiness check applied to the old one and the new one was unlinked
+  regardless of its contents. `Remove` now confirms it is unlinking the entry it
+  validated, and returns `os.ErrNotExist` otherwise.
+- **`Remove` on the filesystem root returns an error instead of panicking.** The
+  root has no parent to unlink it from, and that nil parent was dereferenced.
+  `RemoveAll(fs, "/")` reached it through the package's own helper. It now
+  empties the tree and returns the new `ErrRemoveRoot` sentinel. **If you called
+  `RemoveAll(fs, "/")` to clear an in-memory VFS, it stops panicking and starts
+  returning that error; ignore it with `errors.Is`.**
+- **`Dir` gained an unexported field** to track whether it has been unlinked.
+  Keyed struct literals are unaffected; an unkeyed `vfs.Dir{...}` literal in
+  your own code would stop compiling, which `go vet` already flags for structs
+  from another package.
 
 ## Upgrade Notes (v1.4.0)
 
