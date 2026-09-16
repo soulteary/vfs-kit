@@ -37,12 +37,14 @@ func TestDirAddMiddleAndDuplicate(t *testing.T) {
 	if !ok {
 		t.Fatal("Memory() should return *memoryFileSystem")
 	}
-	ms.mu.RLock()
 	root, err := ms.dirEntry("")
-	ms.mu.RUnlock()
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Dir.Add requires the directory's write lock; memoryFileSystem.Remove
+	// checks emptiness and unlinks under it.
+	root.Lock()
+	defer root.Unlock()
 	// Add so that we insert in the middle (v > name)
 	if err := root.Add("c", &File{}); err != nil {
 		t.Fatal(err)

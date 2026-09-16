@@ -6,7 +6,6 @@ import (
 	"os"
 	pathpkg "path"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -22,11 +21,17 @@ var (
 )
 
 type memoryFileSystem struct {
-	mu   sync.RWMutex
 	root *Dir
 }
 
-// entry must always be called with the lock held
+// entry walks path from the root and returns the entry, the directory
+// holding it and its index in that directory. The returned directory is nil
+// when path names the root itself.
+//
+// Each level is read under its own directory's read lock, released before
+// descending, so the result is a snapshot: by the time entry returns, the
+// name may already be bound to something else. Callers that mutate take the
+// relevant directory's lock and re-check there.
 func (fs *memoryFileSystem) entry(path string) (Entry, *Dir, int, error) {
 	path = cleanPath(path)
 	if path == "" || path == "/" || path == "." {
@@ -93,9 +98,7 @@ func (fs *memoryFileSystem) OpenFile(path string, flag int, mode os.FileMode) (W
 	if base == "" {
 		return nil, errNoEmptyNameFile
 	}
-	fs.mu.RLock()
 	d, err := fs.dirEntry(dir)
-	fs.mu.RUnlock()
 	if err != nil {
 		return nil, err
 	}
@@ -157,12 +160,6 @@ func (fs *memoryFileSystem) Stat(path string) (os.FileInfo, error) {
 }
 
 func (fs *memoryFileSystem) ReadDir(path string) ([]os.FileInfo, error) {
-	fs.mu.RLock()
-	defer fs.mu.RUnlock()
-	return fs.readDir(path)
-}
-
-func (fs *memoryFileSystem) readDir(path string) ([]os.FileInfo, error) {
 	entry, _, _, err := fs.entry(path)
 	if err != nil {
 		return nil, err
@@ -192,9 +189,7 @@ func (fs *memoryFileSystem) Mkdir(path string, perm os.FileMode) error {
 		}
 		return errNoEmptyNameDir
 	}
-	fs.mu.RLock()
 	d, err := fs.dirEntry(dir)
-	fs.mu.RUnlock()
 	if err != nil {
 		return err
 	}
