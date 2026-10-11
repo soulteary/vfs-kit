@@ -53,6 +53,8 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v6
 
+      with:
+        persist-credentials: false
     - name: Set up Go environment
       uses: actions/setup-go@v6
       with:
@@ -99,7 +101,7 @@ jobs:
         import subprocess
         import sys
         import tempfile
-        
+
         # Validate the exact invocation that creates the published files.
         directory = sys.argv[1] if len(sys.argv) > 1 else "."
         output = pathlib.Path(".github") if directory == "." else pathlib.Path(".github/reports") / directory
@@ -154,6 +156,8 @@ jobs:
         echo "Current coverage: ${COVER}%"
         echo "$COVER" | awk '{if ($1 < 92.5) exit 1}' || { echo "Coverage ${COVER}% is below threshold 92.5%"; exit 1; }
 
+    permissions:
+      contents: read
   lint:
     name: Code Quality Check
     runs-on: ubuntu-latest
