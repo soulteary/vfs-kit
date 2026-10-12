@@ -1,24 +1,24 @@
 {
   "schema_version": "1.0",
   "tests": {
-    "total": 132,
-    "passed": 129,
+    "total": 155,
+    "passed": 152,
     "failed": 0,
     "skipped": 3
   },
   "coverage": {
-    "covered_statements": 728,
+    "covered_statements": 754,
     "total_statements": 778,
-    "percentage": 93.57,
+    "percentage": 96.92,
     "threshold": 0
   },
   "packages": [
     {
       "name": ".",
       "status": "pass",
-      "tests": 132,
+      "tests": 155,
       "failed": 0,
-      "coverage": 93.57
+      "coverage": 96.92
     }
   ],
   "failures": null
