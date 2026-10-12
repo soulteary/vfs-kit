@@ -5,7 +5,7 @@
 | Metric | Value |
 | ------ | ----- |
 | Files | 28 |
-| Issues | 4 |
+| Issues | 5 |
 
 ## Checks
 
@@ -16,7 +16,7 @@
 | gocyclo | 92% |
 | ineffassign | 100% |
 | license | 100% |
-| misspell | 92% |
+| misspell | 89% |
 
 ## Issues
 
@@ -30,6 +30,10 @@
 
 ### misspell
 
+- `.github/goreportcard-report.md`
+  - Line 34: "wheter" is a misspelling of "whether"
+  - Line 36: "wheter" is a misspelling of "whether"
+  - Line 37: "wheter" is a misspelling of "whether"
 - `fs.go`
   - Line 53: "wheter" is a misspelling of "whether"
 - `util.go`
