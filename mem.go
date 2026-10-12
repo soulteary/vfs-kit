@@ -114,8 +114,13 @@ func (fs *memoryFileSystem) OpenFile(path string, flag int, mode os.FileMode) (W
 	if f == nil && flag&os.O_CREATE == 0 {
 		return nil, os.ErrNotExist
 	}
+	// Directories cannot be file handles, including on the read-only path.
+	// Check before converting to *File so invalid opens return an error.
+	if f != nil && f.Type() != EntryTypeFile {
+		return nil, fmt.Errorf("%s is not a file", path)
+	}
 	// Read only file?
-	if flag&os.O_WRONLY == 0 && flag&os.O_RDWR == 0 {
+	if flag&(os.O_WRONLY|os.O_RDWR) == 0 {
 		if f == nil {
 			return nil, os.ErrNotExist
 		}
@@ -123,9 +128,6 @@ func (fs *memoryFileSystem) OpenFile(path string, flag int, mode os.FileMode) (W
 	}
 	// Write file, either f != nil or flag&os.O_CREATE
 	if f != nil {
-		if f.Type() != EntryTypeFile {
-			return nil, fmt.Errorf("%s is not a file", path)
-		}
 		if flag&os.O_EXCL != 0 {
 			return nil, os.ErrExist
 		}

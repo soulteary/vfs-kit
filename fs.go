@@ -50,7 +50,7 @@ func (fs *fileSystem) Root() string {
 	return fs.root
 }
 
-// IsTemporary returns wheter the fileSystem is temporary.
+// IsTemporary returns whether the fileSystem is temporary.
 func (fs *fileSystem) IsTemporary() bool {
 	return fs.temporary
 }

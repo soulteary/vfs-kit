@@ -1,11 +1,11 @@
 # Go Report Card
 
-**Grade: A+** (99.2%)
+**Grade: A+** (100.0%)
 
 | Metric | Value |
 | ------ | ----- |
-| Files | 28 |
-| Issues | 5 |
+| Files | 31 |
+| Issues | 0 |
 
 ## Checks
 
@@ -13,32 +13,12 @@
 | ----- | ----- |
 | gofmt | 100% |
 | go_vet | 100% |
-| gocyclo | 92% |
+| gocyclo | 100% |
 | ineffassign | 100% |
 | license | 100% |
-| misspell | 89% |
+| misspell | 100% |
 
-## Issues
-
-### gocyclo
-
-- `vfs_test.go`
-  - Line 35: cyclomatic complexity 32 for function testVFS
-  - Line 344: cyclomatic complexity 23 for function TestChroot
-- `iofs_test.go`
-  - Line 13: cyclomatic complexity 20 for function TestAsReadOnlyFS
-
-### misspell
-
-- `.github/goreportcard-report.md`
-  - Line 34: "wheter" is a misspelling of "whether"
-  - Line 36: "wheter" is a misspelling of "whether"
-  - Line 37: "wheter" is a misspelling of "whether"
-- `fs.go`
-  - Line 53: "wheter" is a misspelling of "whether"
-- `util.go`
-  - Line 191: "wheter" is a misspelling of "whether"
-  - Line 197: "wheter" is a misspelling of "whether"
+No issues found. Nice work!
 
 ---
 
