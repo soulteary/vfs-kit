@@ -153,6 +153,12 @@ func (f *file) Close() error {
 	if f.closed {
 		return nil
 	}
+	// Read-only handles retain the data seen when they were opened. Closing
+	// one must not publish that snapshot over a later writer's replacement.
+	if !f.writable {
+		f.closed = true
+		return nil
+	}
 	if f.f.Mode&ModeCompress != 0 {
 		var buf bytes.Buffer
 		zw := zlib.NewWriter(&buf)
@@ -184,6 +190,9 @@ func (f *file) IsCompressed() bool {
 func (f *file) SetCompressed(c bool) {
 	f.f.Lock()
 	defer f.f.Unlock()
+	if !f.writable {
+		return
+	}
 	if c {
 		f.f.Mode |= ModeCompress
 	} else {

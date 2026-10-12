@@ -260,6 +260,10 @@ if c, ok := entry.(vfs.Compressor); ok {
 ```
 
 `vfs.ModeCompress` is the mode bit used to mark a compressed entry.
+Changing compression requires a writable file handle. `SetCompressed` on a
+read-only handle leaves the file unchanged. `Compress` opens writable handles
+on file systems that support compression and returns an error if writes are
+not allowed; file systems without compression support remain unchanged.
 
 ## Concurrency
 
