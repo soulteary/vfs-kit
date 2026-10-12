@@ -23,7 +23,7 @@ as `github.com/soulteary/vfs-kit` for use across soulteary projects (for example
 
 ## Requirements
 
-- **Go 1.27+** (`go.mod` declares `go 1.27.2`)
+- **Go 1.27.2+** (`go.mod` declares `go 1.27.2`)
 
 ## Install
 
