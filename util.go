@@ -202,7 +202,8 @@ func IsNotExist(err error) bool {
 
 // Compressor is the interface implemented by VFS files which can be
 // transparently compressed and decompressed. Currently, this is only
-// supported by the in-memory filesystems.
+// supported by the in-memory filesystems. SetCompressed requires a writable
+// handle; calling it on a read-only handle leaves the file unchanged.
 type Compressor interface {
 	IsCompressed() bool
 	SetCompressed(c bool)
@@ -223,9 +224,20 @@ func Compress(fs VFS) error {
 		if err != nil {
 			return err
 		}
-		if c, ok := f.(Compressor); ok {
+		_, supported := f.(Compressor)
+		if err := f.Close(); err != nil {
+			return err
+		}
+		if !supported {
+			return nil
+		}
+		w, err := fs.OpenFile(p, os.O_RDWR, mode)
+		if err != nil {
+			return err
+		}
+		if c, ok := w.(Compressor); ok {
 			c.SetCompressed(true)
 		}
-		return f.Close()
+		return w.Close()
 	})
 }
