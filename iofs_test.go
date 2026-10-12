@@ -4,7 +4,7 @@ import (
 	"errors"
 	"io"
 	"io/fs"
-	"path"
+	"reflect"
 	"testing"
 )
 
@@ -21,67 +21,51 @@ func TestAsReadOnlyFS(t *testing.T) {
 	if err := WriteFile(mem, "a/b", []byte("ab"), 0644); err != nil {
 		t.Fatal(err)
 	}
-
 	ro := AsReadOnlyFS(mem)
+	t.Run("read files", func(t *testing.T) { testReadOnlyFSReadFiles(t, ro) })
+	t.Run("walk directory", func(t *testing.T) { testReadOnlyFSWalkDir(t, ro) })
+}
 
-	// fs.ReadFile
-	data, err := fs.ReadFile(ro, "x")
-	if err != nil {
-		t.Fatal(err)
+func testReadOnlyFSReadFiles(t *testing.T, ro fs.FS) {
+	t.Helper()
+	for _, tt := range []struct {
+		name, want string
+	}{
+		{"x", "xxx"},
+		{"a/b", "ab"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			data, err := fs.ReadFile(ro, tt.name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(data) != tt.want {
+				t.Errorf("fs.ReadFile(ro, %q) = %q, want %q", tt.name, data, tt.want)
+			}
+		})
 	}
-	if string(data) != "xxx" {
-		t.Errorf("fs.ReadFile(ro, \"x\") = %q, want \"xxx\"", data)
-	}
-	data, err = fs.ReadFile(ro, "a/b")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(data) != "ab" {
-		t.Errorf("fs.ReadFile(ro, \"a/b\") = %q, want \"ab\"", data)
-	}
-	// root as ".": ReadFile on a directory must fail
-	_, err = fs.ReadFile(ro, ".")
-	if err == nil {
+	// Root as ".": ReadFile on a directory must fail.
+	if _, err := fs.ReadFile(ro, "."); err == nil {
 		t.Error("fs.ReadFile(ro, \".\") should fail for directory")
 	}
+}
 
-	// fs.WalkDir (read-only path using io/fs)
+func testReadOnlyFSWalkDir(t *testing.T, ro fs.FS) {
+	t.Helper()
 	var names []string
-	err = fs.WalkDir(ro, ".", func(p string, d fs.DirEntry, err error) error {
+	err := fs.WalkDir(ro, ".", func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		names = append(names, path.Clean(p))
+		names = append(names, p)
 		return nil
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	// expect ".", "x", "a", "a/b" (order may vary)
-	haveRoot, haveX, haveA, haveAB := false, false, false, false
-	for _, n := range names {
-		switch n {
-		case ".", "/":
-			haveRoot = true
-		case "x":
-			haveX = true
-		case "a":
-			haveA = true
-		case "a/b":
-			haveAB = true
-		}
-	}
-	if !haveRoot {
-		t.Errorf("WalkDir did not visit root, got names %v", names)
-	}
-	if !haveX {
-		t.Errorf("WalkDir did not visit x, got names %v", names)
-	}
-	if !haveA {
-		t.Errorf("WalkDir did not visit a, got names %v", names)
-	}
-	if !haveAB {
-		t.Errorf("WalkDir did not visit a/b, got names %v", names)
+	// io/fs walks directories in lexical order, including the root.
+	if want := []string{".", "a", "a/b", "x"}; !reflect.DeepEqual(names, want) {
+		t.Errorf("WalkDir names = %v, want %v", names, want)
 	}
 }
 

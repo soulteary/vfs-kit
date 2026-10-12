@@ -188,13 +188,13 @@ func Clone(dst VFS, src VFS) error {
 	return err
 }
 
-// IsExist returns wheter the error indicates that the file or directory
+// IsExist returns whether the error indicates that the file or directory
 // already exists.
 func IsExist(err error) bool {
 	return os.IsExist(err)
 }
 
-// IsNotExist returns wheter the error indicates that the file or directory
+// IsNotExist returns whether the error indicates that the file or directory
 // does not exist.
 func IsNotExist(err error) bool {
 	return os.IsNotExist(err)

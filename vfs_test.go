@@ -33,6 +33,19 @@ func openOptionalTestFile(t testing.TB, name string) *os.File {
 }
 
 func testVFS(t *testing.T, fs VFS) {
+	t.Helper()
+	// Keep the same sequence for every backend: later checks use the files
+	// and directories created by the earlier phases.
+	testVFSCreateFiles(t, fs)
+	testVFSWriteOnlyFile(t, fs)
+	testVFSReadDir(t, fs)
+	testVFSCreateDirectories(t, fs)
+	testVFSWalkDirectories(t, fs)
+	testVFSRemoveDirectories(t, fs)
+}
+
+func testVFSCreateFiles(t *testing.T, fs VFS) {
+	t.Helper()
 	if err := WriteFile(fs, "a", []byte("A"), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -46,9 +59,16 @@ func testVFS(t *testing.T, fs VFS) {
 	if err := WriteFile(fs, "b", []byte("B"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fs.OpenFile("b", os.O_CREATE|os.O_TRUNC|os.O_EXCL|os.O_WRONLY, 0755); err == nil || !IsExist(err) {
+	if f, err := fs.OpenFile("b", os.O_CREATE|os.O_TRUNC|os.O_EXCL|os.O_WRONLY, 0755); !IsExist(err) {
+		if f != nil {
+			_ = f.Close()
+		}
 		t.Errorf("error should be ErrExist, it's %v", err)
 	}
+}
+
+func testVFSWriteOnlyFile(t *testing.T, fs VFS) {
+	t.Helper()
 	fb, err := fs.OpenFile("b", os.O_TRUNC|os.O_WRONLY, 0755)
 	if err != nil {
 		t.Fatalf("error opening b: %s", err)
@@ -65,18 +85,22 @@ func testVFS(t *testing.T, fs VFS) {
 	if err := fb.Close(); err != nil {
 		t.Errorf("error closing b: %s", err)
 	}
+}
+
+func testVFSReadDir(t *testing.T, fs VFS) {
+	t.Helper()
 	files, err := fs.ReadDir("/")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(files) != 2 {
-		t.Errorf("expecting 2 files, got %d", len(files))
+		t.Fatalf("expecting 2 files, got %d", len(files))
 	}
 	if n := files[0].Name(); n != "a" {
 		t.Errorf("expecting first file named \"a\", got %q", n)
 	}
 	if n := files[1].Name(); n != "b" {
-		t.Errorf("expecting first file named \"b\", got %q", n)
+		t.Errorf("expecting second file named \"b\", got %q", n)
 	}
 	for ii, v := range files {
 		es := int64(ii + 1)
@@ -84,6 +108,10 @@ func testVFS(t *testing.T, fs VFS) {
 			t.Errorf("expecting file %s to have size %d, has %d", v.Name(), es, s)
 		}
 	}
+}
+
+func testVFSCreateDirectories(t *testing.T, fs VFS) {
+	t.Helper()
 	if err := MkdirAll(fs, "a/b/c/d", 0); err == nil {
 		t.Error("should not allow dir over file")
 	}
@@ -94,16 +122,20 @@ func testVFS(t *testing.T, fs VFS) {
 	if err := MkdirAll(fs, "c/d", 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := fs.Mkdir("c", 0755); err == nil || !IsExist(err) {
+	if err := fs.Mkdir("c", 0755); !IsExist(err) {
 		t.Errorf("err should be ErrExist, it's %v", err)
 	}
 	// Should fail to remove, c is not empty
 	if err := fs.Remove("c"); err == nil {
 		t.Fatalf("removed non-empty directory")
 	}
+}
+
+func testVFSWalkDirectories(t *testing.T, fs VFS) {
+	t.Helper()
 	var walked []os.FileInfo
 	var walkedNames []string
-	err = Walk(fs, "c", func(fs VFS, path string, info os.FileInfo, err error) error {
+	err := Walk(fs, "c", func(fs VFS, path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -115,20 +147,24 @@ func testVFS(t *testing.T, fs VFS) {
 		t.Fatal(err)
 	}
 	if exp := []string{"c", "c/d"}; !reflect.DeepEqual(exp, walkedNames) {
-		t.Error(fmt.Printf("expecting walked names %v, got %v", exp, walkedNames))
+		t.Errorf("expecting walked names %v, got %v", exp, walkedNames)
 	}
 	for _, v := range walked {
 		if !v.IsDir() {
 			t.Errorf("%s should be a dir", v.Name())
 		}
 	}
+}
+
+func testVFSRemoveDirectories(t *testing.T, fs VFS) {
+	t.Helper()
 	if err := RemoveAll(fs, "c"); err != nil {
 		t.Fatal(err)
 	}
-	err = Walk(fs, "c", func(fs VFS, path string, info os.FileInfo, err error) error {
+	err := Walk(fs, "c", func(fs VFS, path string, info os.FileInfo, err error) error {
 		return err
 	})
-	if err == nil || !IsNotExist(err) {
+	if !IsNotExist(err) {
 		t.Errorf("error should be ErrNotExist, it's %v", err)
 	}
 }
@@ -353,7 +389,15 @@ func TestChroot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Under chroot, path "/" is "sub", so "dir/f" is "sub/dir/f"
+	t.Run("read", func(t *testing.T) { testChrootRead(t, ch) })
+	t.Run("metadata", func(t *testing.T) { testChrootMetadata(t, ch) })
+	t.Run("create and remove", func(t *testing.T) { testChrootCreateAndRemove(t, ch, mem) })
+	t.Run("wrapper", func(t *testing.T) { testChrootWrapper(t, ch, mem) })
+}
+
+func testChrootRead(t *testing.T, ch VFS) {
+	t.Helper()
+	// Under chroot, path "/" is "sub", so "dir/f" is "sub/dir/f".
 	data, err := ReadFile(ch, "dir/f")
 	if err != nil {
 		t.Fatal(err)
@@ -368,20 +412,46 @@ func TestChroot(t *testing.T) {
 	if len(infos) != 1 || infos[0].Name() != "dir" {
 		t.Errorf("ReadDir(\"/\") = %v, want one entry \"dir\"", infos)
 	}
-	// Cover Stat, Lstat, OpenFile, Mkdir, Remove
+}
+
+func testChrootMetadata(t *testing.T, ch VFS) {
+	t.Helper()
 	info, err := ch.Stat("dir/f")
-	if err != nil || info.Size() != 4 {
-		t.Errorf("Stat(dir/f) = %v, size=%d", err, info.Size())
+	if err != nil {
+		t.Fatal(err)
 	}
-	_, err = ch.Lstat("dir")
-	if err != nil || info == nil {
-		_ = err
+	if info == nil {
+		t.Fatal("Stat(dir/f) returned nil info")
 	}
+	if info.Size() != 4 || info.IsDir() {
+		t.Errorf("Stat(dir/f) = %v, want a 4-byte file", info)
+	}
+	info, err = ch.Lstat("dir")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info == nil {
+		t.Fatal("Lstat(dir) returned nil info")
+	}
+	if !info.IsDir() || info.Name() != "dir" {
+		t.Errorf("Lstat(dir) = %v, want directory named dir", info)
+	}
+}
+
+func testChrootCreateAndRemove(t *testing.T, ch, mem VFS) {
+	t.Helper()
 	if err := ch.Mkdir("newdir", 0755); err != nil {
 		t.Fatal(err)
 	}
 	if err := WriteFile(ch, "newdir/g", []byte("g"), 0644); err != nil {
 		t.Fatal(err)
+	}
+	data, err := ReadFile(mem, "sub/newdir/g")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "g" {
+		t.Errorf("underlying file = %q, want g", data)
 	}
 	if err := ch.Remove("newdir/g"); err != nil {
 		t.Fatal(err)
@@ -389,6 +459,13 @@ func TestChroot(t *testing.T) {
 	if err := ch.Remove("newdir"); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := mem.Stat("sub/newdir"); !IsNotExist(err) {
+		t.Errorf("underlying directory after Remove = %v, want ErrNotExist", err)
+	}
+}
+
+func testChrootWrapper(t *testing.T, ch, mem VFS) {
+	t.Helper()
 	if c, ok := ch.(Container); !ok || c.VFS() != mem {
 		t.Error("Chroot VFS should implement Container and return underlying VFS")
 	}
@@ -496,7 +573,7 @@ func TestRewriter(t *testing.T) {
 	if err := MkdirAll(mem, "d", 0755); err != nil {
 		t.Fatal(err)
 	}
-	// Rewrite path "x" -> "a" so that Open("x") reads "a"
+	// Rewrite path "x" -> "a" so that Open("x") reads "a".
 	rew := Rewriter(mem, func(p string) string {
 		if p == "x" {
 			return "a"
@@ -506,6 +583,13 @@ func TestRewriter(t *testing.T) {
 		}
 		return p
 	})
+	t.Run("read", func(t *testing.T) { testRewriterRead(t, rew) })
+	t.Run("create and remove", func(t *testing.T) { testRewriterCreateAndRemove(t, rew) })
+	t.Run("wrapper", func(t *testing.T) { testRewriterWrapper(t, rew, mem) })
+}
+
+func testRewriterRead(t *testing.T, rew VFS) {
+	t.Helper()
 	data, err := ReadFile(rew, "x")
 	if err != nil {
 		t.Fatal(err)
@@ -513,9 +597,37 @@ func TestRewriter(t *testing.T) {
 	if string(data) != "A" {
 		t.Errorf("ReadFile(rew, \"x\") = %q, want \"A\"", data)
 	}
-	_, _ = rew.Stat("x")
-	_, _ = rew.Lstat("y")
-	_, _ = rew.ReadDir("y")
+	info, err := rew.Stat("x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info == nil {
+		t.Fatal("Stat(x) returned nil info")
+	}
+	if info.Name() != "a" || info.Size() != 1 {
+		t.Errorf("Stat(x) = %v, want file a with size 1", info)
+	}
+	info, err = rew.Lstat("y")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info == nil {
+		t.Fatal("Lstat(y) returned nil info")
+	}
+	if info.Name() != "d" || !info.IsDir() {
+		t.Errorf("Lstat(y) = %v, want directory d", info)
+	}
+	infos, err := rew.ReadDir("y")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(infos) != 0 {
+		t.Errorf("ReadDir(y) = %v, want an empty directory", infos)
+	}
+}
+
+func testRewriterCreateAndRemove(t *testing.T, rew VFS) {
+	t.Helper()
 	if err := rew.Mkdir("z", 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -528,6 +640,10 @@ func TestRewriter(t *testing.T) {
 	if err := rew.Remove("z"); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func testRewriterWrapper(t *testing.T, rew, mem VFS) {
+	t.Helper()
 	if c, ok := rew.(Container); !ok || c.VFS() != mem {
 		t.Error("Rewriter should implement Container")
 	}
@@ -540,33 +656,24 @@ func TestRewriter(t *testing.T) {
 
 func TestMounterEmptyOpen(t *testing.T) {
 	m := &Mounter{}
-	_, err := m.Open("/")
-	if err == nil || !IsNotExist(err) {
-		t.Errorf("Open with no mounts = %v, want ErrNotExist", err)
+	tests := []struct {
+		name string
+		run  func() error
+	}{
+		{"Open", func() error { _, err := m.Open("/"); return err }},
+		{"OpenFile", func() error { _, err := m.OpenFile("/f", os.O_CREATE|os.O_WRONLY, 0644); return err }},
+		{"Stat", func() error { _, err := m.Stat("/"); return err }},
+		{"Lstat", func() error { _, err := m.Lstat("/"); return err }},
+		{"ReadDir", func() error { _, err := m.ReadDir("/"); return err }},
+		{"Mkdir", func() error { return m.Mkdir("/d", 0755) }},
+		{"Remove", func() error { return m.Remove("/x") }},
 	}
-	_, err = m.OpenFile("/f", os.O_CREATE|os.O_WRONLY, 0644)
-	if err == nil || !IsNotExist(err) {
-		t.Errorf("OpenFile with no mounts = %v, want ErrNotExist", err)
-	}
-	_, err = m.Stat("/")
-	if err == nil || !IsNotExist(err) {
-		t.Errorf("Stat with no mounts = %v, want ErrNotExist", err)
-	}
-	_, err = m.Lstat("/")
-	if err == nil || !IsNotExist(err) {
-		t.Errorf("Lstat with no mounts = %v, want ErrNotExist", err)
-	}
-	_, err = m.ReadDir("/")
-	if err == nil || !IsNotExist(err) {
-		t.Errorf("ReadDir with no mounts = %v, want ErrNotExist", err)
-	}
-	err = m.Mkdir("/d", 0755)
-	if err == nil || !IsNotExist(err) {
-		t.Errorf("Mkdir with no mounts = %v, want ErrNotExist", err)
-	}
-	err = m.Remove("/x")
-	if err == nil || !IsNotExist(err) {
-		t.Errorf("Remove with no mounts = %v, want ErrNotExist", err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := tt.run(); !IsNotExist(err) {
+				t.Errorf("%s with no mounts = %v, want ErrNotExist", tt.name, err)
+			}
+		})
 	}
 }
 
