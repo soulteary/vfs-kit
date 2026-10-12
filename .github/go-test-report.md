@@ -4,15 +4,15 @@
 
 | Metric | Value |
 | --- | --- |
-| Total | 155 |
-| Passed | 152 |
+| Total | 162 |
+| Passed | 159 |
 | Failed | 0 |
 | Skipped | 3 |
-| Coverage | 96.92% |
+| Coverage | 96.97% |
 | Threshold | 0.00% |
 
 ### Packages
 
 | Package | Status | Tests | Failed | Coverage |
 | --- | --- | --- | --- | --- |
-| . | pass | 155 | 0 | 96.92% |
+| . | pass | 162 | 0 | 96.97% |
