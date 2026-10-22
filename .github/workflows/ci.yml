@@ -148,11 +148,11 @@ jobs:
     - name: Reuse GTR coverage profile
       run: cp .github/test-results/coverage.out coverage.out
     - name: Display coverage summary
-      run: go tool cover -func=coverage.out
+      run: GOTOOLCHAIN=auto go tool cover -func=coverage.out
 
     - name: Check coverage threshold
       run: |
-        COVER=$(go tool cover -func=coverage.out | grep total | awk '{gsub(/%/,"",$3); print $3}')
+        COVER=$(GOTOOLCHAIN=auto go tool cover -func=coverage.out | grep total | awk '{gsub(/%/,"",$3); print $3}')
         echo "Current coverage: ${COVER}%"
         echo "$COVER" | awk '{if ($1 < 92.5) exit 1}' || { echo "Coverage ${COVER}% is below threshold 92.5%"; exit 1; }
 
