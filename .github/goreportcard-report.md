@@ -11,10 +11,10 @@
 
 | Check | Score |
 | ----- | ----- |
-| go_vet | 100% |
 | gofmt | 100% |
-| ineffassign | 100% |
+| go_vet | 100% |
 | gocyclo | 100% |
+| ineffassign | 100% |
 | license | 100% |
 | misspell | 100% |
 
